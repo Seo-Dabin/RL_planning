@@ -1,0 +1,8 @@
+_target_: nuplan.planning.simulation.observation.ego_centric_ml_agents.EgoCentricMLAgents
+_convert_: 'all'
+
+model_config: simple_vector_model
+checkpoint_path: ???
+  # '../../../vector_experiment/vector_model/2024.03.17.14.40.39/best_model/epoch=7-step=1311.ckpt'
+
+
