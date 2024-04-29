@@ -19,8 +19,30 @@ from nuplan.planning.simulation.observation.ml.utils import path_to_linestring
 from nuplan.planning.simulation.observation.observation_type import DetectionsTracks
 from nuplan.planning.simulation.occupancy_map.abstract_occupancy_map import OccupancyMap
 
+# added 24 04 29
+from nuplan.common.actor_state.state_representation import Point2D, StateSE2, ProgressStateSE2
+from nuplan.planning.simulation.path.interpolated_path import InterpolatedPath
+
 UniquemlAgents = Dict[str, mlAgent]
 
+import numpy as np
+import math
+from typing import List
+
+def generate_Progress_path(x_values : np.array, y_values : np.array) -> List[ProgressStateSE2]:
+    assert len(x_values) == len(y_values), "length of x & y points error"
+    num_points = len(x_values)
+    headings = np.arctan2(np.cos(x_values), np.ones_like(x_values)) # Derivative of sin is cos
+    arc_length = np.cumsum(np.sqrt(np.diff(x_values, prepend=x_values[0])**2 + np.diff(y_values, prepend=y_values[0])**2))
+
+    ProgressPath = [
+        ProgressStateSE2(progress=arc_length[i], x=x_values[i], y=y_values[i], heading=headings[i])
+        for i in range(num_points)
+    ]
+
+    return ProgressPath
+
+# Example usage:
 
 class MLAgentManager:
     """ml smart-agents manager."""
@@ -65,62 +87,25 @@ class MLAgentManager:
 
         for agent_token, agent in self.agents.items():
             if agent.is_active(iteration) and agent.has_valid_path():
+
                 agent.plan_route(traffic_light_status)
                 # Add stop lines into occupancy map if they are impacting the agent
                 stop_lines = self._get_relevant_stop_lines(agent, traffic_light_status)
                 # Keep track of the stop lines that were inserted. This is to remove them for each agent
                 inactive_stop_line_tokens = self._insert_stop_lines_into_occupancy_map(stop_lines)
 
-                # Check for agents that intersects THIS agent's path
-                agent_path = path_to_linestring(agent.get_path_to_go())
-                intersecting_agents = self.agent_occupancy.intersects(
-                    agent_path.buffer((agent.width / 2), cap_style=CAP_STYLE.flat)
-                )
-                assert intersecting_agents.contains(agent_token), "Agent's baseline does not intersect the agent itself"
+                ###################### rewrite agent trajectory ######################
+                x = ego_state.center.x
+                y = ego_state.center.y
+                test_path = generate_Progress_path(np.array([x+10, x+11, x+12]),np.array([y+10, y+11, y+12]))
+                path = InterpolatedPath(test_path)
+                agent._path = path
+                agent._requires_state_update = True
 
-                # Checking if there are agents intersecting THIS agent's baseline.
-                # Hence, we are checking for at least 2 intersecting agents.
-                if intersecting_agents.size > 1:
-                    nearest_id, nearest_agent_polygon, relative_distance = intersecting_agents.get_nearest_entry_to(
-                        agent_token
-                    )
-                    agent_heading = agent.to_se2().heading
-
-                    if "ego" in nearest_id:
-                        ego_velocity = ego_state.dynamic_car_state.rear_axle_velocity_2d
-                        longitudinal_velocity = np.hypot(ego_velocity.x, ego_velocity.y)
-                        relative_heading = ego_state.rear_axle.heading - agent_heading
-                    elif 'stop_line' in nearest_id:
-                        longitudinal_velocity = 0.0
-                        relative_heading = 0.0
-                    elif nearest_id in self.agents:
-                        nearest_agent = self.agents[nearest_id]
-                        longitudinal_velocity = nearest_agent.velocity
-                        relative_heading = nearest_agent.to_se2().heading - agent_heading
-                    else:
-                        longitudinal_velocity = 0.0
-                        relative_heading = 0.0
-
-                    # Wrap angle to [-pi, pi]
-                    relative_heading = principal_value(relative_heading)
-                    # take the longitudinal component of the projected velocity
-                    projected_velocity = rotate_angle(StateSE2(longitudinal_velocity, 0, 0), relative_heading).x
-
-                    # relative_distance already takes the vehicle dimension into account.
-                    # Therefore there is no need to pass in the length_rear.
-                    length_rear = 0
-                else:
-                    # Free road case: no leading vehicle
-                    projected_velocity = 0.0
-                    relative_distance = agent.get_progress_to_go()
-                    length_rear = agent.length / 2
-
-                agent.propagate(
-                    mlLeadAgentState(progress=relative_distance, velocity=projected_velocity, length_rear=length_rear),
-                    tspan,
-                )
                 self.agent_occupancy.set(agent_token, agent.projected_footprint)
                 self.agent_occupancy.remove(inactive_stop_line_tokens)
+
+
         self.agent_occupancy.remove(track_ids)
 
     def get_active_agents(self, iteration: int, num_samples: int, sampling_time: float) -> DetectionsTracks:

@@ -158,27 +158,6 @@ class MLAgents(AbstractObservation):
             self._radius,
         )
 
-        # self.agent_occupancy.set("ego", ego_state.car_footprint.geometry)
-        # track_ids = []
-        # for track in open_loop_detections:
-        #     track_ids.append(track.track_token)
-        #     self.agent_occupancy.insert(track.track_token, track.box.geometry)
-        #
-        # self._filter_agents_out_of_range(ego_state, radius)
-        #
-        # for agent_token, agent in self.agents.items():
-        #     if agent.is_active(iteration) and agent.has_valid_path():
-        #         ###################################################################################
-        #         ### 중략 -relative_distance, projected_velocity, length_rear 다양한 case 문으로 계산 ###
-        #         ###################################################################################
-        #         agent.propagate(
-        #             mlLeadAgentState(progress=relative_distance, velocity=projected_velocity, length_rear=length_rear),
-        #             tspan,
-        #         )
-        #         self.agent_occupancy.set(agent_token, agent.projected_footprint)
-        #         self.agent_occupancy.remove(inactive_stop_line_tokens)
-        # self.agent_occupancy.remove(track_ids)
-
     def _get_open_loop_track_objects(self, iteration: int) -> List[TrackedObject]:
         """
         Get open-loop tracked objects from scenario.
