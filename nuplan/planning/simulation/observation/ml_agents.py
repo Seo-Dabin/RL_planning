@@ -156,6 +156,7 @@ class MLAgents(AbstractObservation):
             traffic_light_status,
             self._get_open_loop_track_objects(self.current_iteration),
             self._radius,
+            history,
         )
 
     def _get_open_loop_track_objects(self, iteration: int) -> List[TrackedObject]:

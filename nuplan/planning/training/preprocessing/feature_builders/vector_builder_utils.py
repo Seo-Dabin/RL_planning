@@ -483,12 +483,17 @@ def get_traffic_light_encoding(
     )
 
     # Extract ids of red and green lane connectors
-    green_lane_connectors = [
-        str(data.lane_connector_id) for data in traffic_light_data if data.status == TrafficLightStatusType.GREEN
-    ]
-    red_lane_connectors = [
-        str(data.lane_connector_id) for data in traffic_light_data if data.status == TrafficLightStatusType.RED
-    ]
+
+    try :
+        green_lane_connectors = [
+            str(data.lane_connector_id) for data in traffic_light_data if data.status == TrafficLightStatusType.GREEN
+        ]
+        red_lane_connectors = [
+            str(data.lane_connector_id) for data in traffic_light_data if data.status == TrafficLightStatusType.RED
+        ]
+    except :
+        green_lane_connectors = [str(traffic_light_data[TrafficLightStatusType.GREEN])]
+        red_lane_connectors = [str(traffic_light_data[TrafficLightStatusType.RED])]
 
     # Assign segments with corresponding traffic light status
     for tl_id in green_lane_connectors:

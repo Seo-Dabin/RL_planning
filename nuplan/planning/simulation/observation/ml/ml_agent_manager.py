@@ -29,6 +29,13 @@ import numpy as np
 import math
 from typing import List
 
+from GameFormerPlanner.GameFormer.predictor import GameFormer
+import torch
+from nuplan.planning.simulation.history.simulation_history_buffer import SimulationHistoryBuffer
+from nuplan.planning.simulation.planner.abstract_planner import PlannerInitialization, PlannerInput
+# from GameFormerPlanner.Planner.planner import Planner
+from GameFormerPlanner.Planner.observation import general_observation_adapter, observation_adapter
+
 def generate_Progress_path(x_values : np.array, y_values : np.array) -> List[ProgressStateSE2]:
     assert len(x_values) == len(y_values), "length of x & y points error"
     num_points = len(x_values)
@@ -66,6 +73,7 @@ class MLAgentManager:
         traffic_light_status: Dict[TrafficLightStatusType, List[str]],
         open_loop_detections: List[TrackedObject],
         radius: float,
+        history: SimulationHistoryBuffer
     ) -> None:
         """
         Propagate each active agent forward in time.
@@ -85,6 +93,14 @@ class MLAgentManager:
 
         self._filter_agents_out_of_range(ego_state, radius)
 
+        ########################## load game-former model : Completed ##########################
+        model = GameFormer(encoder_layers=3, decoder_levels=2)
+        model_path = '../../../../../../GameFormerPlanner/training_log/Exp2_100epoch/model_epoch_100_valADE_2.3318.pth'
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        model.load_state_dict(torch.load(model_path, map_location=device))
+        model.to(device)
+        model.eval()
+
         for agent_token, agent in self.agents.items():
             if agent.is_active(iteration) and agent.has_valid_path():
 
@@ -94,19 +110,55 @@ class MLAgentManager:
                 # Keep track of the stop lines that were inserted. This is to remove them for each agent
                 inactive_stop_line_tokens = self._insert_stop_lines_into_occupancy_map(stop_lines)
 
-                ###################### rewrite agent trajectory ######################
-                x = ego_state.center.x
-                y = ego_state.center.y
-                test_path = generate_Progress_path(np.array([x+10, x+11, x+12]),np.array([y+10, y+11, y+12]))
-                path = InterpolatedPath(test_path)
-                agent._path = path
-                agent._requires_state_update = True
+                ###################### get observation for each agent : TBD ######################
+                route_roadblock_ids = self._map_api._vector_map['lane_groups_polygons']['fid']
+                center_agent_n = 1
+                ### Need to be developed
+                # input = general_observation_adapter(history, traffic_light_status, self._map_api, route_roadblock_ids, center_agent_n, device='cpu')
+                decoder_outputs, agent_plan = model(input)
+                if agent_plan.is_cuda:
+                    agent_plan = agent_plan.cpu()
+                agent_plan = agent_plan.detach().numpy()
+                ### Need to be developed
+                # x_values = agent_plan.x
+                # y_values = agent_plan.y
 
+                ###################### rewrite agent trajectory : Completed ######################
+                x_values = [ego_state.center.x + 10, ego_state.center.x + 11, ego_state.center.x + 12] # Toy example
+                y_values = [ego_state.center.y + 10, ego_state.center.y + 11, ego_state.center.y + 12] # Toy example
+
+                agent._path = InterpolatedPath(generate_Progress_path(np.array(x_values),np.array(y_values)))
+                agent._requires_state_update = True
                 self.agent_occupancy.set(agent_token, agent.projected_footprint)
                 self.agent_occupancy.remove(inactive_stop_line_tokens)
-
-
         self.agent_occupancy.remove(track_ids)
+
+        ################################ some information ################################
+        # input = {'ego_agent_past' : ego_agent_past,
+        #          'neighbor_agents_past' : neighbor_agents_past,
+        #          'map_lanes' : map_lanes,
+        #          'map_crosswalks' : map_crosswalks,
+        #          'route_lanes' : route_lanes}
+
+        # ego_agent_past : nn.LSTM("7", 256, 2, batch_first=True)
+        # neighbor_agents_past : nn.LSTM("11", 256, 2, batch_first=True)
+        # neighbors = inputs['neighbor_agents_past']
+        # / encoded_neighbors = [self.agent_encoder(neighbors[:, i]) for i in range(neighbors.shape[1])]
+        # map_lanes : nn.Sequential(nn.Linear("7", 64), nn.ReLU(), nn.Linear(64, 128), nn.ReLU(), nn.Linear(128, 256)) / PositionalEncoding(max_len="50")
+        # map_crosswalks : nn.Sequential(nn.Linear("3", 64), nn.ReLU(), nn.Linear(64, 128), nn.ReLU(), nn.Linear(128, 256)) / PositionalEncoding(max_len="30")
+        # route_lanes : nn.Sequential(nn.Linear("3", 64), nn.ReLU(), nn.Linear(64, 128), nn.ReLU(), nn.Linear(128, 256)) / PositionalEncoding(max_len="50")
+
+        # self._future_len = 80
+
+        # agent_path_x = agent_trajectories[0, agent_n, 0, 0] # ?, ?, modality, time_steps, [x,y,h,?]
+        # agent_path_y = agent_trajectories[0, agent_n, 0, 1]
+
+        # decoder_outputs: dict_keys(
+        #     ['level_0_interactions', 'level_0_scores', 'level_1_interactions', 'level_1_scores', 'level_2_interactions',
+        #      'level_2_scores'])
+        # ego_plan: torch.Size([1, 80, 3])
+        # history._ego_state_buffer
+        # history._observations_buffer
 
     def get_active_agents(self, iteration: int, num_samples: int, sampling_time: float) -> DetectionsTracks:
         """
